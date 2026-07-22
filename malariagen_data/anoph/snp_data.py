@@ -3,7 +3,7 @@ from collections import OrderedDict
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import allel  # type: ignore
+import allel  # type: ignore https://scikit-allel.readthedocs.io/en/stable/
 import bokeh
 import dask.array as da
 import numpy as np
@@ -1972,7 +1972,9 @@ class AnophelesSnpData(
         )
 
         # Locate biallelic SNPs.
-        loc_bi = allel.AlleleCountsArray(ac).is_biallelic()
+        loc_bi = allel.AlleleCountsArray(
+            ac
+        ).is_biallelic()  # https://scikit-allel.readthedocs.io/en/stable/
 
         # Remap alleles to squeeze out unobserved alleles.
         ac_bi = ac[loc_bi]
