@@ -1,15 +1,20 @@
 """
 Build a local file:// fixture for AnophelesSnpData, using real VCF/zarr data
-already downloaded for sample_set 1276-AD-BD-ALAM-VMF00156 (AdirusWRAIR2 assembly).
+already downloaded for two sample sets (both genotyped against the same
+AdirusWRAIR2 all-sites list, confirmed by matching site counts):
+- 1276-AD-BD-ALAM-VMF00156 (Bangladesh)
+- 1277-VO-KH-WITKOWSKI-VMF00151 (Cambodia)
 
 Restricted to the 2 chromosome-scale contigs: KB672490, KB672491.
 Genome *sequence* is a stub (placeholder bases, real contig lengths) since the
 real AdirusWRAIR2 FASTA needs a login I don't have.
 Site list (POS/REF/ALT) comes from one representative VCF (same for every
-sample, since GATK was run with GENOTYPE_GIVEN_ALLELES/EMIT_ALL_SITES).
-Genotypes are stacked directly from the 28 already-downloaded per-sample
-.zarr.zip GT arrays (no need to re-parse any VCF for GT).
+sample, since GATK was run with GENOTYPE_GIVEN_ALLELES/EMIT_ALL_SITES) and is
+shared across both sample sets. Genotypes are stacked directly from the
+already-downloaded per-sample .zarr.zip GT/GQ/AD/MQ arrays (no need to
+re-parse any VCF for genotype data).
 """
+
 import json
 import subprocess
 from pathlib import Path
@@ -25,14 +30,28 @@ BUCKET = FIXTURE_ROOT / "vo_adir_release"
 
 CONTIGS = ["KB672490", "KB672491"]
 CONTIG_LENGTHS = {"KB672490": 22947322, "KB672491": 6774089}
-SAMPLE_SET = "1276-AD-BD-ALAM-VMF00156"
 RELEASE = "1.0"
 RELEASE_PATH = "v1"
 REPRESENTATIVE_VCF = DOWNLOADED / "VBS46299-6321STDY9453299.vcf.gz"
 
+# Each sample set has its own source directory of per-sample .zarr.zip files
+# and its own real metadata/study info, but all share the same sites zarr.
+SAMPLE_SETS = {
+    "1276-AD-BD-ALAM-VMF00156": {
+        "source_dir": DOWNLOADED,
+        "study_id": "1276-AD-BD-ALAM",
+        "study_url": "https://www.malariagen.net/network/where-we-work/1276-AD-BD-ALAM",
+    },
+    "1277-VO-KH-WITKOWSKI-VMF00151": {
+        "source_dir": DOWNLOADED / "cambodia",
+        "study_id": "1277-VO-KH-WITKOWSKI",
+        "study_url": "https://www.malariagen.net/network/where-we-work/1277-VO-KH-WITKOWSKI",
+    },
+}
 
-def get_sample_ids():
-    return sorted(p.name.split(".zarr.zip")[0] for p in DOWNLOADED.glob("*.zarr.zip"))
+
+def get_sample_ids(source_dir):
+    return sorted(p.name.split(".zarr.zip")[0] for p in source_dir.glob("*.zarr.zip"))
 
 
 def write_config():
@@ -51,32 +70,31 @@ def write_config():
         json.dump(config, f, indent=4)
 
 
-def write_manifest(sample_ids):
+def write_manifest(sample_counts):
     release_dir = BUCKET / RELEASE_PATH
     release_dir.mkdir(parents=True, exist_ok=True)
     manifest = pd.DataFrame(
         {
-            "sample_set": [SAMPLE_SET],
-            "sample_count": [len(sample_ids)],
-            "study_id": ["1276-AD-BD-ALAM"],
-            "study_url": [
-                "https://www.malariagen.net/network/where-we-work/1276-AD-BD-ALAM"
-            ],
-            "terms_of_use_expiry_date": ["2026-12-31"],
+            "sample_set": list(sample_counts.keys()),
+            "sample_count": [sample_counts[ss] for ss in sample_counts],
+            "study_id": [SAMPLE_SETS[ss]["study_id"] for ss in sample_counts],
+            "study_url": [SAMPLE_SETS[ss]["study_url"] for ss in sample_counts],
+            "terms_of_use_expiry_date": ["2026-12-31" for _ in sample_counts],
             "terms_of_use_url": [
                 "https://malariagen.github.io/vector-data/vobs/vobs.html#terms-of-use"
+                for _ in sample_counts
             ],
         }
     )
     manifest.to_csv(release_dir / "manifest.tsv", sep="\t", index=False)
 
 
-def write_sample_metadata(sample_ids):
-    src = REPO / "metadata/general" / SAMPLE_SET / "samples.meta.csv"
+def write_sample_metadata(sample_set, sample_ids):
+    src = REPO / "metadata/general" / sample_set / "samples.meta.csv"
     df = pd.read_csv(src)
     df_ds = df[df["sample_id"].isin(sample_ids)].reset_index(drop=True)
     assert len(df_ds) == len(sample_ids), "sample metadata subset mismatch"
-    dst = BUCKET / RELEASE_PATH / "metadata/general" / SAMPLE_SET / "samples.meta.csv"
+    dst = BUCKET / RELEASE_PATH / "metadata/general" / sample_set / "samples.meta.csv"
     dst.parent.mkdir(parents=True, exist_ok=True)
     df_ds.to_csv(dst, index=False)
     return df_ds["sample_id"].tolist()
@@ -141,8 +159,8 @@ def write_sites_zarr(sites):
     zarr.consolidate_metadata(path)
 
 
-def write_genotypes_zarr(sample_ids):
-    path = BUCKET / RELEASE_PATH / "snp_genotypes/all" / SAMPLE_SET
+def write_genotypes_zarr(sample_set, sample_ids, source_dir):
+    path = BUCKET / RELEASE_PATH / "snp_genotypes/all" / sample_set
     root = zarr.open(path, mode="w")
     samples = np.array(sample_ids, dtype="S")
     root.create_dataset(name="samples", data=samples)
@@ -172,7 +190,7 @@ def write_genotypes_zarr(sample_ids):
         )
 
         for i, sample_id in enumerate(sample_ids):
-            src_path = DOWNLOADED / f"{sample_id}.zarr.zip"
+            src_path = source_dir / f"{sample_id}.zarr.zip"
             src = zarr.open_group(src_path, mode="r")
             sample_grp = src[sample_id][contig]
             gt[:, i, :] = sample_grp["calldata"]["GT"][:, 0, :]
@@ -182,22 +200,28 @@ def write_genotypes_zarr(sample_ids):
             # quality per site, 1D), not calldata/ - merge into a 2D
             # (variants, samples) array to match what _snp_calls_for_contig expects.
             mq[:, i] = sample_grp["variants"]["MQ"][:]
-            print(f"  {contig}: merged {sample_id} ({i + 1}/{n_samples})")
+            print(f"  {sample_set}/{contig}: merged {sample_id} ({i + 1}/{n_samples})")
     zarr.consolidate_metadata(path)
 
 
 if __name__ == "__main__":
-    sample_ids = get_sample_ids()
-    print(f"{len(sample_ids)} samples with GT, GQ, and AD data available")
+    raw_sample_ids = {}
+    for sample_set, info in SAMPLE_SETS.items():
+        ids = get_sample_ids(info["source_dir"])
+        raw_sample_ids[sample_set] = ids
+        print(f"{sample_set}: {len(ids)} samples with GT, GQ, AD, MQ data available")
 
     print("Writing config...")
     write_config()
 
     print("Writing manifest...")
-    write_manifest(sample_ids)
+    write_manifest({ss: len(ids) for ss, ids in raw_sample_ids.items()})
 
     print("Writing sample metadata...")
-    sample_ids = write_sample_metadata(sample_ids)  # re-order to metadata row order
+    # Re-order each sample set's ids to match its metadata row order.
+    sample_ids = {
+        ss: write_sample_metadata(ss, ids) for ss, ids in raw_sample_ids.items()
+    }
 
     print("Writing stub genome zarr...")
     write_stub_genome()
@@ -209,7 +233,8 @@ if __name__ == "__main__":
     print("Writing sites zarr...")
     write_sites_zarr(sites)
 
-    print("Writing combined genotypes zarr (stacking per-sample GT arrays)...")
-    write_genotypes_zarr(sample_ids)
+    for sample_set, info in SAMPLE_SETS.items():
+        print(f"Writing combined genotypes zarr for {sample_set}...")
+        write_genotypes_zarr(sample_set, sample_ids[sample_set], info["source_dir"])
 
     print("Done. Fixture at:", BUCKET)

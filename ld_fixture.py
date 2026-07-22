@@ -68,4 +68,12 @@ bed_reader.to_bed(
 
 #  ../admixture_linux-1.4.0/admixture_linux-1.4.0/admixture local_fixture/test.bed 2
 # now runs and produces bed, bim and fam
-# but none of the options work
+# but none of the options work- they do I was just being tired, should set threads i.e. jN
+# consider projection approach
+
+## to consider
+# the number of markers needed to resolve populations in this kind of analysis is inversely proportional to the genetic distance (FST ) betweeen the populations.
+# As a rule of thumb, we have found that 10,000 markers suffice to perform GWAS correction
+# for continentally separated populations (for example, African, Asian, and European pop-
+# ulations FST > .05) while more like 100,000 markers are necessary when the populations
+# are within a continent (Europe, for instance, FST < 0.01).
