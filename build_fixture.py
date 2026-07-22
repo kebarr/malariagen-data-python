@@ -150,22 +150,45 @@ def write_genotypes_zarr(sample_ids):
     n_samples = len(sample_ids)
     for contig in CONTIGS:
         n_sites = CONTIG_LENGTHS_ACTUAL[contig]
-        gt = np.empty(shape=(n_sites, n_samples, 2), dtype="i1")
+        contig_grp = root.require_group(contig)
+        calldata = contig_grp.require_group("calldata")
+        chunks_3d = (n_sites // 20, n_samples, None)
+        chunks_2d = (n_sites // 20, n_samples)
+
+        # Create the merged arrays directly in the zarr store, so only one
+        # sample's slice needs to be held in memory at a time (AD alone would
+        # be ~5GB for KB672490 if built as a single in-memory numpy array).
+        gt = calldata.zeros(
+            name="GT", shape=(n_sites, n_samples, 2), chunks=chunks_3d, dtype="i1"
+        )
+        gq = calldata.zeros(
+            name="GQ", shape=(n_sites, n_samples), chunks=chunks_2d, dtype="i1"
+        )
+        ad = calldata.zeros(
+            name="AD", shape=(n_sites, n_samples, 4), chunks=chunks_3d, dtype="i2"
+        )
+        mq = calldata.zeros(
+            name="MQ", shape=(n_sites, n_samples), chunks=chunks_2d, dtype="f4"
+        )
+
         for i, sample_id in enumerate(sample_ids):
             src_path = DOWNLOADED / f"{sample_id}.zarr.zip"
             src = zarr.open_group(src_path, mode="r")
-            gt[:, i, :] = src[sample_id][contig]["calldata"]["GT"][:, 0, :]
+            sample_grp = src[sample_id][contig]
+            gt[:, i, :] = sample_grp["calldata"]["GT"][:, 0, :]
+            gq[:, i] = sample_grp["calldata"]["GQ"][:, 0]
+            ad[:, i, :] = sample_grp["calldata"]["AD"][:, 0, :]
+            # N.B. MQ lives under variants/ in the source (per-sample mapping
+            # quality per site, 1D), not calldata/ - merge into a 2D
+            # (variants, samples) array to match what _snp_calls_for_contig expects.
+            mq[:, i] = sample_grp["variants"]["MQ"][:]
             print(f"  {contig}: merged {sample_id} ({i + 1}/{n_samples})")
-        contig_grp = root.require_group(contig)
-        calldata = contig_grp.require_group("calldata")
-        gt_chunks = (n_sites // 20, n_samples, None)
-        calldata.create_dataset(name="GT", data=gt, chunks=gt_chunks)
     zarr.consolidate_metadata(path)
 
 
 if __name__ == "__main__":
     sample_ids = get_sample_ids()
-    print(f"{len(sample_ids)} samples with GT data available")
+    print(f"{len(sample_ids)} samples with GT, GQ, and AD data available")
 
     print("Writing config...")
     write_config()
