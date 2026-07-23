@@ -1,7 +1,7 @@
 from .ld import AnophelesLdAnalysis
 from ..util import _check_types, _dask_compress_dataset
 from . import base_params, ld_params, pca_params, admixture_params, plotly_params
-from typing import Optional
+from typing import Optional, Tuple
 import os
 import subprocess as sp
 import shutil
@@ -14,6 +14,13 @@ from pathlib import Path
 from numpydoc_decorator import doc  # type: ignore
 import allel
 import bed_reader
+
+# recolve issues running locally in Ipython
+import plotly.io as pio
+
+pio.renderers.default = (
+    None  # optional: also silences the auto-display attempt globally
+)
 
 
 class Admixture(
@@ -206,6 +213,36 @@ class Admixture(
             with open(log_path, "a") as fh:
                 fh.write("{}".format(text))
 
+    def _load_admixture_q_long(
+        self, input_folder_with_sample_name: str, k: int
+    ) -> Tuple[pd.DataFrame, np.ndarray, str]:
+        """Load one ADMIXTURE .Q file (for a given K) plus its .fam file,
+        reshaped to long form for a stacked bar chart. Shared by
+        `plot_admixture_ancestry` and `plot_admixture_ancestry_by_k`."""
+        q_file_parent = Path(input_folder_with_sample_name).parent
+        sample_name_dots = Path(input_folder_with_sample_name).name
+        sample_name = sample_name_dots.replace(".", "_")
+        q_file = Path(q_file_parent, "admixture", f"{sample_name}.{k}.1.Q")
+        df_q = pd.read_csv(q_file, sep=r"\s+", header=None)
+        n_ancestries = df_q.shape[1]
+        df_q.columns = [f"Ancestry {i + 1}" for i in range(n_ancestries)]
+
+        fam_file = f"{input_folder_with_sample_name}.fam"
+        df_fam = pd.read_csv(fam_file, sep=r"\s+", header=None)
+        if len(df_fam) != len(df_q):
+            raise ValueError(
+                f".fam file has {len(df_fam)} samples but .Q file for K={k} "
+                f"has {len(df_q)} - are you sure these came from the same run?"
+            )
+        individual = df_fam[1].astype(str).values  # IID column
+        df_q.insert(0, "individual", individual)
+
+        # Reshape to long form for a stacked bar chart.
+        df_long = df_q.melt(
+            id_vars="individual", var_name="Ancestry component", value_name="Proportion"
+        )
+        return df_long, individual, sample_name
+
     @_check_types
     @doc(
         summary="""
@@ -219,10 +256,10 @@ class Admixture(
             is the contents of a ``.Q`` file.
         """,
         parameters=dict(
-            q_file="Path to an ADMIXTURE `.Q` output file (as produced by `run_admixture`).",
-            fam_file="Path to the PLINK `.fam` file used as input to ADMIXTURE. If "
-            "provided, bars are labeled with sample IDs; otherwise bars are "
-            "labeled by individual number, matching the `.Q` file's row order.",
+            input_folder_with_sample_name="Output from `biallelic_snps_to_admixture` - "
+            "used to get the names of files needed for plotting.",
+            K="Number of ancestral populations (K) to plot, used to locate the "
+            "corresponding `.Q` output file.",
             kwargs="Passed through to `px.bar()`.",
         ),
         returns="A plotly figure.",
@@ -242,33 +279,8 @@ class Admixture(
         # Load ancestry proportions - one row per individual, one column per
         # ancestral population, in the same order as the .fam file used as
         # ADMIXTURE's input.
-        q_file_parent = Path(input_folder_with_sample_name).parent
-        sample_name_dots = Path(input_folder_with_sample_name).name
-        sample_name = sample_name_dots.replace(".", "_")
-        q_file = Path(q_file_parent, "admixture", f"{sample_name}.{K}.1.Q")
-        df_q = pd.read_csv(q_file, sep=r"\s+", header=None)
-        k = df_q.shape[1]
-        df_q.columns = [f"Ancestry {i + 1}" for i in range(k)]
-
-        fam_file = f"{input_folder_with_sample_name}.fam"
-        # Label individuals, using sample IDs from the .fam file if available,
-        # otherwise falling back to individual number (as in the ADMIXTURE
-        # manual's R example).
-        if fam_file is not None:
-            df_fam = pd.read_csv(fam_file, sep=r"\s+", header=None)
-            if len(df_fam) != len(df_q):
-                raise ValueError(
-                    f".fam file has {len(df_fam)} samples but .Q file has "
-                    f"{len(df_q)} - are you sure these came from the same run?"
-                )
-            individual = df_fam[1].astype(str).values  # IID column
-        else:
-            individual = [str(i + 1) for i in range(len(df_q))]
-        df_q.insert(0, "individual", individual)
-
-        # Reshape to long form for a stacked bar chart.
-        df_plot = df_q.melt(
-            id_vars="individual", var_name="Ancestry component", value_name="Proportion"
+        df_plot, individual, sample_name = self._load_admixture_q_long(
+            input_folder_with_sample_name, K
         )
 
         # Set up plotting options.
@@ -296,12 +308,100 @@ class Admixture(
         # No gaps between bars, matching the ADMIXTURE manual's R example
         # (`border=NA`), and rotate labels so sample IDs don't overlap.
         fig.update_layout(bargap=0)
-        if fam_file is not None:
-            fig.update_xaxes(tickangle=-90)
+        fig.update_xaxes(tickangle=-90)
 
         if show:  # pragma: no cover
             fig.show(renderer=renderer)
         fig.write_html(f"{sample_name}_{K}.html")
+        return fig
+
+    @_check_types
+    @doc(
+        summary="""
+            Plot ADMIXTURE ancestry proportions for a range of K values in a
+            single figure, one stacked bar chart panel per K, sharing the same
+            individual ordering on the x-axis.
+        """,
+        extended_summary="""
+            This is the standard way of comparing ADMIXTURE results across
+            multiple values of K: stacking one `plot_admixture_ancestry`-style
+            panel per K, so population structure can be compared as K increases.
+        """,
+        parameters=dict(
+            input_folder_with_sample_name="Output from `biallelic_snps_to_admixture` - "
+            "used to get the names of files needed for plotting.",
+            kmin="Minimum number of ancestral populations (K) to plot, inclusive.",
+            kmax="Maximum number of ancestral populations (K) to plot, inclusive.",
+            kwargs="Passed through to `px.bar()`.",
+        ),
+        returns="A plotly figure with one facet row per K.",
+    )
+    def plot_admixture_ancestry_by_k(
+        self,
+        input_folder_with_sample_name: admixture_params.input_folder_with_sample_name,
+        kmin: admixture_params.kmin,
+        kmax: admixture_params.kmax,
+        color_discrete_sequence: plotly_params.color_discrete_sequence = None,
+        template: plotly_params.template = "simple_white",
+        width: plotly_params.fig_width = 900,
+        height: Optional[plotly_params.fig_height] = None,
+        show: plotly_params.show = True,
+        renderer: plotly_params.renderer = None,
+        **kwargs,
+    ) -> plotly_params.figure:
+        if kmax < kmin:
+            raise ValueError(f"kmax ({kmax}) must be >= kmin ({kmin})")
+
+        k_values = list(range(kmin, kmax + 1))
+        dfs = []
+        individual_order = None
+        sample_name = None
+        for k in k_values:
+            df_long, individual, sample_name = self._load_admixture_q_long(
+                input_folder_with_sample_name, k
+            )
+            df_long.insert(0, "K", k)
+            dfs.append(df_long)
+            if individual_order is None:
+                individual_order = list(individual)
+            elif list(individual) != individual_order:
+                raise ValueError(
+                    f"Individuals for K={k} don't match K={k_values[0]} - are "
+                    "you sure all these runs used the same samples?"
+                )
+        df_plot = pd.concat(dfs, axis=0, ignore_index=True)
+
+        if height is None:
+            height = 200 * len(k_values)
+
+        # Set up plotting options.
+        plot_kwargs = dict(
+            color_discrete_sequence=color_discrete_sequence,
+            template=template,
+            width=width,
+            height=height,
+            labels={"individual": "Individual", "Proportion": "Ancestry"},
+            # Preserve .Q file row order and put kmin at the top.
+            category_orders={"individual": individual_order, "K": k_values},
+            facet_row="K",
+        )
+        plot_kwargs.update(kwargs)
+
+        fig = px.bar(
+            df_plot,
+            x="individual",
+            y="Proportion",
+            color="Ancestry component",
+            barmode="stack",
+            **plot_kwargs,
+        )
+
+        fig.update_layout(bargap=0)
+        fig.update_xaxes(tickangle=-90)
+
+        if show:  # pragma: no cover
+            fig.show(renderer=renderer)
+        fig.write_html(f"{sample_name}_K{kmin}-{kmax}.html")
         return fig
 
     def get_beds(self, input_dir: admixture_params.input_file_dir):
