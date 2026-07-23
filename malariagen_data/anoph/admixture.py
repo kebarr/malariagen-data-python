@@ -242,8 +242,9 @@ class Admixture(
         # Load ancestry proportions - one row per individual, one column per
         # ancestral population, in the same order as the .fam file used as
         # ADMIXTURE's input.
-        q_file_parent = Path(input_folder_with_sample_name)[:-1]
-        sample_name = Path(input_folder_with_sample_name)[-1]
+        q_file_parent = Path(input_folder_with_sample_name).parent
+        sample_name_dots = Path(input_folder_with_sample_name).name
+        sample_name = sample_name_dots.replace(".", "_")
         q_file = Path(q_file_parent, "admixture", f"{sample_name}.{K}.1.Q")
         df_q = pd.read_csv(q_file, sep=r"\s+", header=None)
         k = df_q.shape[1]
@@ -300,6 +301,7 @@ class Admixture(
 
         if show:  # pragma: no cover
             fig.show(renderer=renderer)
+        fig.write_html(f"{sample_name}_{K}.html")
         return fig
 
     def get_beds(self, input_dir: admixture_params.input_file_dir):
