@@ -155,3 +155,16 @@ prefix: TypeAlias = Annotated[
     str,
     "Prefix used when naming summarized cross-validation output files.",
 ]
+
+# Plotting arguments
+input_folder_with_sample_name: TypeAlias = Annotated[
+    str,
+    "Output from biallelic_snps_to_admixture- used to get names of files needed for plotting.",
+]
+
+K: TypeAlias = Annotated[
+    int,
+    """
+    Number of ancestors assumed for ADMIXTURE- used to get name of file to use in barplot
+    """,
+]

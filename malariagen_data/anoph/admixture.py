@@ -1,12 +1,14 @@
 from .ld import AnophelesLdAnalysis
-from ..util import _dask_compress_dataset
-from . import base_params, ld_params, pca_params, admixture_params
+from ..util import _check_types, _dask_compress_dataset
+from . import base_params, ld_params, pca_params, admixture_params, plotly_params
 from typing import Optional
 import os
 import subprocess as sp
 import shutil
 from datetime import datetime
 import numpy as np
+import pandas as pd
+import plotly.express as px  # type: ignore
 from numpy import random
 from pathlib import Path
 from numpydoc_decorator import doc  # type: ignore
@@ -204,6 +206,102 @@ class Admixture(
             with open(log_path, "a") as fh:
                 fh.write("{}".format(text))
 
+    @_check_types
+    @doc(
+        summary="""
+            Plot ADMIXTURE ancestry proportions as a stacked bar chart, one bar
+            per individual.
+        """,
+        extended_summary="""
+            This follows the same visualisation recommended in the ADMIXTURE
+            manual, e.g. in R: ``barplot(t(as.matrix(tbl)), col=rainbow(3),
+            xlab="Individual #", ylab="Ancestry", border=NA)`` where ``tbl``
+            is the contents of a ``.Q`` file.
+        """,
+        parameters=dict(
+            q_file="Path to an ADMIXTURE `.Q` output file (as produced by `run_admixture`).",
+            fam_file="Path to the PLINK `.fam` file used as input to ADMIXTURE. If "
+            "provided, bars are labeled with sample IDs; otherwise bars are "
+            "labeled by individual number, matching the `.Q` file's row order.",
+            kwargs="Passed through to `px.bar()`.",
+        ),
+        returns="A plotly figure.",
+    )
+    def plot_admixture_ancestry(
+        self,
+        input_folder_with_sample_name: admixture_params.input_folder_with_sample_name,
+        K: admixture_params.K,
+        color_discrete_sequence: plotly_params.color_discrete_sequence = None,
+        template: plotly_params.template = "simple_white",
+        width: plotly_params.fig_width = 900,
+        height: plotly_params.fig_height = 400,
+        show: plotly_params.show = True,
+        renderer: plotly_params.renderer = None,
+        **kwargs,
+    ) -> plotly_params.figure:
+        # Load ancestry proportions - one row per individual, one column per
+        # ancestral population, in the same order as the .fam file used as
+        # ADMIXTURE's input.
+        q_file_parent = Path(input_folder_with_sample_name)[:-1]
+        sample_name = Path(input_folder_with_sample_name)[-1]
+        q_file = Path(q_file_parent, "admixture", f"{sample_name}.{K}.1.Q")
+        df_q = pd.read_csv(q_file, sep=r"\s+", header=None)
+        k = df_q.shape[1]
+        df_q.columns = [f"Ancestry {i + 1}" for i in range(k)]
+
+        fam_file = f"{input_folder_with_sample_name}.fam"
+        # Label individuals, using sample IDs from the .fam file if available,
+        # otherwise falling back to individual number (as in the ADMIXTURE
+        # manual's R example).
+        if fam_file is not None:
+            df_fam = pd.read_csv(fam_file, sep=r"\s+", header=None)
+            if len(df_fam) != len(df_q):
+                raise ValueError(
+                    f".fam file has {len(df_fam)} samples but .Q file has "
+                    f"{len(df_q)} - are you sure these came from the same run?"
+                )
+            individual = df_fam[1].astype(str).values  # IID column
+        else:
+            individual = [str(i + 1) for i in range(len(df_q))]
+        df_q.insert(0, "individual", individual)
+
+        # Reshape to long form for a stacked bar chart.
+        df_plot = df_q.melt(
+            id_vars="individual", var_name="Ancestry component", value_name="Proportion"
+        )
+
+        # Set up plotting options.
+        plot_kwargs = dict(
+            color_discrete_sequence=color_discrete_sequence,
+            template=template,
+            width=width,
+            height=height,
+            labels={"individual": "Individual", "Proportion": "Ancestry"},
+            # Preserve .Q file row order - plotly sorts categorical axes
+            # alphabetically by default, which would scramble individuals.
+            category_orders={"individual": list(individual)},
+        )
+        plot_kwargs.update(kwargs)
+
+        fig = px.bar(
+            df_plot,
+            x="individual",
+            y="Proportion",
+            color="Ancestry component",
+            barmode="stack",
+            **plot_kwargs,
+        )
+
+        # No gaps between bars, matching the ADMIXTURE manual's R example
+        # (`border=NA`), and rotate labels so sample IDs don't overlap.
+        fig.update_layout(bargap=0)
+        if fam_file is not None:
+            fig.update_xaxes(tickangle=-90)
+
+        if show:  # pragma: no cover
+            fig.show(renderer=renderer)
+        return fig
+
     def get_beds(self, input_dir: admixture_params.input_file_dir):
         os.chdir(input_dir)
         beds = [f for f in os.listdir(".") if f.endswith(".bed")]
@@ -257,6 +355,12 @@ class Admixture(
             },
         )
 
+        # ADMIXTURE writes its own .P/.Q outputs to cwd using just the input
+        # file's basename with its extension stripped (e.g. "test.bed" -> "test").
+        # Use the same basename for the tee'd .out log, so all three output
+        # files for a run share one consistent name.
+        p_basename = os.path.splitext(os.path.basename(p))[0]
+
         # Build the extra ADMIXTURE flags that are only added when specified,
         # since ADMIXTURE has its own internal defaults for each of these.
         extra_flags = f"--method={method}"
@@ -282,7 +386,7 @@ class Admixture(
 
                 rep_seed = seed if seed is not None else random.randint(5000)
                 call_str = "admixture {0} {1} -j{2} --cv={3} -s {4} {5} | tee {6}.{1}.out".format(
-                    p, j[0], threads, cv, rep_seed, extra_flags, p.split(".ped")[0]
+                    p, j[0], threads, cv, rep_seed, extra_flags, p_basename
                 )
                 self.write_log(
                     output_dir=output_dir,
@@ -290,7 +394,7 @@ class Admixture(
                         datetime.now(), j[0], j[1], call_str
                     ),
                 )
-                print("{}\n".format(call_str))
+                print(f"{call_str}\n")
                 retcode = sp.call(call_str, shell=True)
                 if retcode != 0:
                     self.write_log(
