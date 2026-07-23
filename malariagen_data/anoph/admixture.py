@@ -96,6 +96,8 @@ class Admixture(
             sample_query=sample_query, sample_indices=sample_indices
         )
 
+        os.makedirs(output_dir, exist_ok=True)
+
         # Use user-provided prefix or fall back to auto-generated default
         if out is not None:
             admixture_file_path = f"{output_dir}/{out}"
@@ -108,9 +110,6 @@ class Admixture(
         if os.path.exists(bed_file_path):
             if not overwrite:
                 return admixture_file_path
-        base_params._validate_sample_selection_params(
-            sample_query=sample_query, sample_indices=sample_indices
-        )
 
         # Validate LD parameters.
         if ld_window_size <= 0:
@@ -237,7 +236,7 @@ class Admixture(
         bootstrap: Optional[admixture_params.bootstrap] = None,
     ):
         os.chdir(input_dir)
-
+        os.makedirs(output_dir, exist_ok=True)
         # Record the settings this run was executed with.
         self.write_log(
             output_dir=output_dir,
@@ -327,16 +326,14 @@ class Admixture(
                         )
 
                 tf = datetime.now()
-                print("\n{}".format("-" * 50))
-                print("Finished: K{0} replicate {1}".format(j[0], j[1]))
-                print("Elapsed time: {} (H:M:S)".format(tf - tb))
+                print(f"\n{'-' * 50}\n")
+                print(f"Finished: K{j[0]} replicate {j[1]}")
+                print(f"Elapsed time: {tf - tb} (H:M:S)")
                 self.write_log(
                     output_dir=output_dir,
-                    text="{0}: K{1} replicate {2}: Finished. Elapsed time: {3}\n\n".format(
-                        datetime.now(), j[0], j[1], tf - tb
-                    ),
+                    text=f"{datetime.now()}: K{j[0]} replicate {j[1]}: Finished. Elapsed time: {tf - tb}\n\n",
                 )
-                print("{}\n".format("-" * 50))
+                print(f"{'-' * 50}\n")
 
     def summarize_outputs(
         self,
@@ -356,11 +353,11 @@ class Admixture(
 
             outall = "Cross_Validation_All_Replicates.txt"
             with open(outall, "a") as fh:
-                fh.write("{}\t{}\t{}\n".format("K", "Rep", "CV"))
+                fh.write("K\tRep\tCV\n")
 
             outavg = "Cross_Validation_Averages.txt"
             with open(outavg, "a") as fh:
-                fh.write("{}\t{}\t{}\n".format("K", "CV_Avg", "CV_Stdev"))
+                fh.write("K\tCV_Avg\tCV_Stdev\n")
 
             for i in range(kmin, kmax + 1):
                 kouts = sorted([f for f in outs if int(f.split(".")[1]) == i])
@@ -375,33 +372,24 @@ class Admixture(
                         ]
                         cv_vals.append(cv[0])
                         with open(outall, "a") as fh:
-                            fh.write("{}\t{}\t{}\n".format(i, f.split(".")[2], cv[0]))
+                            fh.write(f"{i}\t{f.split(".")[2]}\t{cv[0]}\n")
 
                 with open(outavg, "a") as fh:
                     fh.write(
-                        "{}\t{}\t{}\n".format(
-                            i,
-                            np.round(np.mean(cv_vals), 4),
-                            np.round(np.std(cv_vals), 4),
-                        )
+                        f"{i}\t{np.round(np.mean(cv_vals), 4)}\t{np.round(np.std(cv_vals), 4)}\n"
                     )
 
             tf = datetime.now()
-            print("\tFinished.\n\tElapsed time: {} (H:M:S)".format(tf - tb))
+            print(f"\tFinished.\n\tElapsed time: {tf - tb} (H:M:S)")
             print("{}\n".format("-" * 50))
 
             shutil.move(
                 outall,
-                os.path.join(output_dir, "{}.CV_All.txt".format(prefix)),
+                Path(output_dir, f"{prefix}.CV_All.txt"),
             )
-            shutil.move(
-                outavg,
-                os.path.join(output_dir, "{}.CV_Avg.txt".format(prefix)),
-            )
+            shutil.move(outavg, Path(output_dir, f"{prefix}.CV_Avg.txt"))
 
         else:
             raise ValueError(
-                "\n\n\nERROR: No output log files found in directory: {}\n\n\n".format(
-                    output_dir
-                )
+                "\n\n\nERROR: No output log files found in directory: {output_dir}\n\n\n"
             )
