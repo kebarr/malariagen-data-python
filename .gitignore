@@ -11,6 +11,7 @@ coverage.xml
 gcs_cache
 results_cache
 tests/anoph/fixture/simulated
+familiarise_core_functionality.py
 
 # emacs
 *~

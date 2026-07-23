@@ -172,31 +172,41 @@ class Admixture(
 
         return admixture_file_path
 
-    def write_log(self, argd, text):
-        os.chdir(admixture_params.output_dir)
+    def write_log(
+        self,
+        output_dir: admixture_params.output_dir,
+        text: str,
+        argd: Optional[admixture_params.argd] = None,
+    ):
+        log_path = Path(output_dir, "admixture_wrapper.log")
         if argd:
-            with open(
-                Path(admixture_params.output_dir, "admixture_wrapper.log"), "a"
-            ) as fh:
+            with open(log_path, "a") as fh:
                 fh.write(
-                    "Run executed: {}\n\nadmixture_wrapper settings:\n-i:\t\t{}\n--kmin:\t{}\n--kmax:\t{}\n--reps:\t{}\n--cv:\t{}\n-t:\t\t{}\n\n".format(
+                    "Run executed: {}\n\nadmixture_wrapper settings:\n"
+                    "-i:\t\t{}\n--kmin:\t{}\n--kmax:\t{}\n--reps:\t{}\n--cv:\t{}\n"
+                    "-t:\t\t{}\n--seed:\t{}\n--method:\t{}\n--acceleration:\t{}\n"
+                    "-C:\t{}\n-c:\t{}\n-B:\t{}\n\n".format(
                         datetime.now(),
-                        argd["indir"],
-                        argd["kmin"],
-                        argd["kmax"],
-                        argd["reps"],
-                        argd["cv"],
-                        argd["threads"],
+                        argd.get("indir"),
+                        argd.get("kmin"),
+                        argd.get("kmax"),
+                        argd.get("reps"),
+                        argd.get("cv"),
+                        argd.get("threads"),
+                        argd.get("seed"),
+                        argd.get("method"),
+                        argd.get("acceleration"),
+                        argd.get("major_convergence"),
+                        argd.get("minor_convergence"),
+                        argd.get("bootstrap"),
                     )
                 )
         else:
-            with open(
-                Path(admixture_params.output_dir, "admixture_wrapper.log"), "a"
-            ) as fh:
+            with open(log_path, "a") as fh:
                 fh.write("{}".format(text))
 
-    def get_beds(self):
-        os.chdir(admixture_params.input_file_dir)
+    def get_beds(self, input_dir: admixture_params.input_file_dir):
+        os.chdir(input_dir)
         beds = [f for f in os.listdir(".") if f.endswith(".bed")]
         if not beds:
             raise ValueError(
@@ -209,8 +219,56 @@ class Admixture(
                 print("\t{}".format(p))
             return beds
 
-    def run_admixture(self, p, kmin, kmax, reps, cv, threads):
-        os.chdir(admixture_params.input_file_dir)
+    def run_admixture(
+        self,
+        p: str,
+        input_dir: admixture_params.input_file_dir,
+        output_dir: admixture_params.output_dir,
+        kmin: admixture_params.kmin,
+        kmax: admixture_params.kmax,
+        reps: admixture_params.reps = admixture_params.reps_default,
+        cv: admixture_params.cv = admixture_params.cv_default,
+        threads: admixture_params.threads = admixture_params.threads_default,
+        seed: Optional[admixture_params.seed] = None,
+        method: admixture_params.method = admixture_params.method_default,
+        acceleration: Optional[admixture_params.acceleration] = None,
+        major_convergence: Optional[admixture_params.major_convergence] = None,
+        minor_convergence: Optional[admixture_params.minor_convergence] = None,
+        bootstrap: Optional[admixture_params.bootstrap] = None,
+    ):
+        os.chdir(input_dir)
+
+        # Record the settings this run was executed with.
+        self.write_log(
+            output_dir=output_dir,
+            text="",
+            argd={
+                "indir": input_dir,
+                "kmin": kmin,
+                "kmax": kmax,
+                "reps": reps,
+                "cv": cv,
+                "threads": threads,
+                "seed": seed,
+                "method": method,
+                "acceleration": acceleration,
+                "major_convergence": major_convergence,
+                "minor_convergence": minor_convergence,
+                "bootstrap": bootstrap,
+            },
+        )
+
+        # Build the extra ADMIXTURE flags that are only added when specified,
+        # since ADMIXTURE has its own internal defaults for each of these.
+        extra_flags = f"--method={method}"
+        if acceleration is not None:
+            extra_flags += f" --acceleration={acceleration}"
+        if major_convergence is not None:
+            extra_flags += f" -C={major_convergence}"
+        if minor_convergence is not None:
+            extra_flags += f" -c={minor_convergence}"
+        if bootstrap is not None:
+            extra_flags += f" -B{bootstrap}"
 
         kreps = []
         for i in range(kmin, kmax + 1):
@@ -223,24 +281,22 @@ class Admixture(
                 print("Running: K{0} replicate {1}".format(j[0], j[1]))
                 print("{}\n".format("-" * 50))
 
-                seed = random.randint(5000)
-                call_str = (
-                    "admixture {0} {1} -j{2} --cv={3} -s {4} | tee {5}.{1}.out".format(
-                        p, j[0], threads, cv, seed, p.split(".ped")[0]
-                    )
+                rep_seed = seed if seed is not None else random.randint(5000)
+                call_str = "admixture {0} {1} -j{2} --cv={3} -s {4} {5} | tee {6}.{1}.out".format(
+                    p, j[0], threads, cv, rep_seed, extra_flags, p.split(".ped")[0]
                 )
                 self.write_log(
-                    None,
-                    "{0}: K{1} replicate {2}: {3}\n".format(
+                    output_dir=output_dir,
+                    text="{0}: K{1} replicate {2}: {3}\n".format(
                         datetime.now(), j[0], j[1], call_str
                     ),
-                    admixture_params.input_file_dir,
                 )
                 print("{}\n".format(call_str))
                 retcode = sp.call(call_str, shell=True)
                 if retcode != 0:
                     self.write_log(
-                        f"Process {call_str} exited with returncode {retcode}"
+                        output_dir=output_dir,
+                        text=f"Process {call_str} exited with returncode {retcode}",
                     )
                 outs = [f for f in os.listdir(".") if f.endswith((".P", ".Q", ".out"))]
                 for o in outs:
@@ -249,7 +305,7 @@ class Admixture(
                         shutil.move(
                             o,
                             os.path.join(
-                                admixture_params.output_dir,
+                                output_dir,
                                 "{}.{}.{}.{}".format(
                                     o.split(".")[0],
                                     o.split(".")[1],
@@ -259,13 +315,13 @@ class Admixture(
                             ),
                         )
                     elif len(pieces) > 3:
-                        prefix = "_".join(pieces[:-2])
+                        out_prefix = "_".join(pieces[:-2])
                         shutil.move(
                             o,
                             os.path.join(
-                                admixture_params.output_dir,
+                                output_dir,
                                 "{}.{}.{}.{}".format(
-                                    prefix, pieces[-2], j[1], pieces[-1]
+                                    out_prefix, pieces[-2], j[1], pieces[-1]
                                 ),
                             ),
                         )
@@ -275,16 +331,22 @@ class Admixture(
                 print("Finished: K{0} replicate {1}".format(j[0], j[1]))
                 print("Elapsed time: {} (H:M:S)".format(tf - tb))
                 self.write_log(
-                    None,
-                    "{0}: K{1} replicate {2}: Finished. Elapsed time: {3}\n\n".format(
+                    output_dir=output_dir,
+                    text="{0}: K{1} replicate {2}: Finished. Elapsed time: {3}\n\n".format(
                         datetime.now(), j[0], j[1], tf - tb
                     ),
-                    admixture_params.input_file_dir,
                 )
                 print("{}\n".format("-" * 50))
 
-    def summarize_outputs(self, kmin, kmax, prefix):
-        os.chdir(admixture_params.output_dir)
+    def summarize_outputs(
+        self,
+        output_dir: admixture_params.output_dir,
+        kmin: admixture_params.kmin,
+        kmax: admixture_params.kmax,
+        prefix: admixture_params.prefix,
+    ):
+        #  Q (the ancestry fractions), and P (the allele frequencies of the inferred ancestral populations).
+        os.chdir(output_dir)
         outs = [f for f in os.listdir(".") if f.endswith(".out")]
 
         if outs:
@@ -330,20 +392,16 @@ class Admixture(
 
             shutil.move(
                 outall,
-                os.path.join(
-                    admixture_params.input_file_dir, "{}.CV_All.txt".format(prefix)
-                ),
+                os.path.join(output_dir, "{}.CV_All.txt".format(prefix)),
             )
             shutil.move(
                 outavg,
-                os.path.join(
-                    admixture_params.input_file_dir, "{}.CV_Avg.txt".format(prefix)
-                ),
+                os.path.join(output_dir, "{}.CV_Avg.txt".format(prefix)),
             )
 
         else:
             raise ValueError(
                 "\n\n\nERROR: No output log files found in directory: {}\n\n\n".format(
-                    admixture_params.output_dir
+                    output_dir
                 )
             )
