@@ -1,6 +1,6 @@
 """Parameters for ADMIXTURE converter functions."""
 
-from typing import Literal, Mapping
+from typing import Literal, Mapping, Sequence
 
 from typing_extensions import Annotated, TypeAlias
 
@@ -168,3 +168,35 @@ K: TypeAlias = Annotated[
     Number of ancestors assumed for ADMIXTURE- used to get name of file to use in barplot
     """,
 ]
+
+# --- Supervised analysis based on Ancestry Informative Markers ---
+
+pop_column: TypeAlias = Annotated[
+    str,
+    """
+    Name of a sample metadata column (e.g. an AIM species-call column such as
+    'aim_species_gambcolu_arabiensis') to use as known population labels for
+    ADMIXTURE's supervised mode.
+    """,
+]
+
+known_values: TypeAlias = Annotated[
+    Sequence[str],
+    """
+    Which values of `pop_column` count as confidently "known" reference
+    populations. Samples whose value is missing, or not in this set, are left
+    for ADMIXTURE to estimate (written as "-" in the .pop file). If not
+    provided, any non-missing value is treated as known.
+    """,
+]
+
+supervised: TypeAlias = Annotated[
+    bool,
+    """
+    Whether to run ADMIXTURE in supervised mode (``--supervised``), using a
+    .pop file (as produced by `write_admixture_pop_file`) alongside the input
+    .bed/.bim/.fam to fix the ancestry of reference samples.
+    """,
+]
+
+supervised_default: supervised = False
