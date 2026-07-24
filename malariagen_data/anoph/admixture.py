@@ -218,111 +218,6 @@ class Admixture(
             with open(log_path, "a") as fh:
                 fh.write("{}".format(text))
 
-    @_check_types
-    @doc(
-        summary="""
-            Write a `.pop` file for ADMIXTURE's supervised mode, using a chosen
-            sample metadata column (e.g. an AIM species-call column) as known
-            population labels.
-        """,
-        extended_summary="""
-            ADMIXTURE's supervised mode (``--supervised``) requires a `.pop`
-            file alongside the input .bed/.bim/.fam, with one line per
-            individual in the same order as the .fam file: either a population
-            label for samples with known ancestry, or "-" for samples whose
-            ancestry should be estimated.
-
-            This is the natural way to connect AIM species calls to ADMIXTURE:
-            AIMs are a small, ascertained marker panel designed for acurate
-            taxonomic classification Using confident AIM calls as reference
-            labels here lets supervised ADMIXTURE anchor its estimates against
-            them, rather than trying to re-discover that structure from scratch.
-        """,
-        parameters=dict(
-            input_folder_with_sample_name="Output from `biallelic_snps_to_admixture` - "
-            "used to locate the `.fam` file, and to name the `.pop` file "
-            "written alongside it.",
-            pop_column="Sample metadata column to use as population labels "
-            "(e.g. 'aim_species_gambcolu_arabiensis').",
-            known_values="Which values of `pop_column` count as known "
-            "reference populations; others are left for ADMIXTURE to estimate.",
-        ),
-        returns="Path to the written `.pop` file.",
-    )
-    def write_admixture_pop_file(
-        self,
-        input_folder_with_sample_name: admixture_params.input_folder_with_sample_name,
-        pop_column: admixture_params.pop_column,
-        known_values: Optional[admixture_params.known_values] = None,
-        sample_sets: Optional[base_params.sample_sets] = None,
-        sample_query: Optional[base_params.sample_query] = None,
-        sample_query_options: Optional[base_params.sample_query_options] = None,
-    ) -> str:
-        # Read the .fam file to get sample IDs in the exact row order that
-        # ADMIXTURE will use - this may not match sample_metadata()'s own row
-        # order, since biallelic_snps_to_admixture may have reordered/subset
-        # samples during LD pruning and selection.
-        fam_file = f"{input_folder_with_sample_name}.fam"
-        df_fam = pd.read_csv(fam_file, sep=r"\s+", header=None)
-        fam_sample_ids = df_fam[1].astype(str).values  # IID column
-
-        df_samples = self.sample_metadata(
-            sample_sets=sample_sets,
-            sample_query=sample_query,
-            sample_query_options=sample_query_options,
-        )
-        if pop_column not in df_samples.columns:
-            raise ValueError(
-                f"pop_column {pop_column!r} not found in sample metadata. "
-                f"Available columns: {sorted(df_samples.columns)}. "
-                "If you intended to use an AIM species-call column, check "
-                "that AIM data is configured for this data resource "
-                "(self._aim_analysis must be set)."
-            )
-        pop_lookup = df_samples.set_index("sample_id")[pop_column].to_dict()
-
-        labels = []
-        n_known = 0
-        for sample_id in fam_sample_ids:
-            value = pop_lookup.get(sample_id, None)
-            is_known = (
-                value is not None
-                and not (isinstance(value, float) and np.isnan(value))
-                and str(value).strip() != ""
-                and (known_values is None or value in known_values)
-            )
-            if is_known:
-                labels.append(str(value))
-                n_known += 1
-            else:
-                labels.append("-")
-
-        if n_known == 0:
-            raise ValueError(
-                f"No samples matched as 'known' for pop_column={pop_column!r} "
-                f"(known_values={known_values!r}) - supervised mode needs at "
-                "least some reference samples with known ancestry."
-            )
-        if n_known == len(labels):
-            raise ValueError(
-                "Every sample was matched as 'known' - supervised mode needs "
-                "at least some samples left as '-' for ADMIXTURE to estimate."
-            )
-
-        pop_file = f"{input_folder_with_sample_name}.pop"
-        with open(pop_file, "w") as fh:
-            for label in labels:
-                fh.write(f"{label}\n")
-
-        print(f"Wrote {pop_file}: {n_known} known / {len(labels) - n_known} unknown")
-        print(
-            "First 5 sample_id -> label pairs (sanity check, cf. ADMIXTURE manual's `paste` tip):"
-        )
-        for sample_id, label in list(zip(fam_sample_ids, labels))[:5]:
-            print(f"  {sample_id}\t{label}")
-
-        return pop_file
-
     def _load_admixture_q_long(
         self, input_folder_with_sample_name: str, k: int
     ) -> Tuple[pd.DataFrame, np.ndarray, str]:
@@ -721,3 +616,108 @@ class Admixture(
             raise ValueError(
                 "\n\n\nERROR: No output log files found in directory: {output_dir}\n\n\n"
             )
+
+    # @_check_types
+    # @doc(
+    #     summary="""
+    #         Write a `.pop` file for ADMIXTURE's supervised mode, using a chosen
+    #         sample metadata column (e.g. an AIM species-call column) as known
+    #         population labels.
+    #     """,
+    #     extended_summary="""
+    #         ADMIXTURE's supervised mode (``--supervised``) requires a `.pop`
+    #         file alongside the input .bed/.bim/.fam, with one line per
+    #         individual in the same order as the .fam file: either a population
+    #         label for samples with known ancestry, or "-" for samples whose
+    #         ancestry should be estimated.
+
+    #         This is the natural way to connect AIM species calls to ADMIXTURE:
+    #         AIMs are a small, ascertained marker panel designed for acurate
+    #         taxonomic classification Using confident AIM calls as reference
+    #         labels here lets supervised ADMIXTURE anchor its estimates against
+    #         them, rather than trying to re-discover that structure from scratch.
+    #     """,
+    #     parameters=dict(
+    #         input_folder_with_sample_name="Output from `biallelic_snps_to_admixture` - "
+    #         "used to locate the `.fam` file, and to name the `.pop` file "
+    #         "written alongside it.",
+    #         pop_column="Sample metadata column to use as population labels "
+    #         "(e.g. 'aim_species_gambcolu_arabiensis').",
+    #         known_values="Which values of `pop_column` count as known "
+    #         "reference populations; others are left for ADMIXTURE to estimate.",
+    #     ),
+    #     returns="Path to the written `.pop` file.",
+    # )
+    # def write_admixture_pop_file(
+    #     self,
+    #     input_folder_with_sample_name: admixture_params.input_folder_with_sample_name,
+    #     pop_column: admixture_params.pop_column,
+    #     known_values: Optional[admixture_params.known_values] = None,
+    #     sample_sets: Optional[base_params.sample_sets] = None,
+    #     sample_query: Optional[base_params.sample_query] = None,
+    #     sample_query_options: Optional[base_params.sample_query_options] = None,
+    # ) -> str:
+    #     # Read the .fam file to get sample IDs in the exact row order that
+    #     # ADMIXTURE will use - this may not match sample_metadata()'s own row
+    #     # order, since biallelic_snps_to_admixture may have reordered/subset
+    #     # samples during LD pruning and selection.
+    #     fam_file = f"{input_folder_with_sample_name}.fam"
+    #     df_fam = pd.read_csv(fam_file, sep=r"\s+", header=None)
+    #     fam_sample_ids = df_fam[1].astype(str).values  # IID column
+
+    #     df_samples = self.sample_metadata(
+    #         sample_sets=sample_sets,
+    #         sample_query=sample_query,
+    #         sample_query_options=sample_query_options,
+    #     )
+    #     if pop_column not in df_samples.columns:
+    #         raise ValueError(
+    #             f"pop_column {pop_column!r} not found in sample metadata. "
+    #             f"Available columns: {sorted(df_samples.columns)}. "
+    #             "If you intended to use an AIM species-call column, check "
+    #             "that AIM data is configured for this data resource "
+    #             "(self._aim_analysis must be set)."
+    #         )
+    #     pop_lookup = df_samples.set_index("sample_id")[pop_column].to_dict()
+
+    #     labels = []
+    #     n_known = 0
+    #     for sample_id in fam_sample_ids:
+    #         value = pop_lookup.get(sample_id, None)
+    #         is_known = (
+    #             value is not None
+    #             and not (isinstance(value, float) and np.isnan(value))
+    #             and str(value).strip() != ""
+    #             and (known_values is None or value in known_values)
+    #         )
+    #         if is_known:
+    #             labels.append(str(value))
+    #             n_known += 1
+    #         else:
+    #             labels.append("-")
+
+    #     if n_known == 0:
+    #         raise ValueError(
+    #             f"No samples matched as 'known' for pop_column={pop_column!r} "
+    #             f"(known_values={known_values!r}) - supervised mode needs at "
+    #             "least some reference samples with known ancestry."
+    #         )
+    #     if n_known == len(labels):
+    #         raise ValueError(
+    #             "Every sample was matched as 'known' - supervised mode needs "
+    #             "at least some samples left as '-' for ADMIXTURE to estimate."
+    #         )
+
+    #     pop_file = f"{input_folder_with_sample_name}.pop"
+    #     with open(pop_file, "w") as fh:
+    #         for label in labels:
+    #             fh.write(f"{label}\n")
+
+    #     print(f"Wrote {pop_file}: {n_known} known / {len(labels) - n_known} unknown")
+    #     print(
+    #         "First 5 sample_id -> label pairs (sanity check, cf. ADMIXTURE manual's `paste` tip):"
+    #     )
+    #     for sample_id, label in list(zip(fam_sample_ids, labels))[:5]:
+    #         print(f"  {sample_id}\t{label}")
+
+    #     return pop_file
