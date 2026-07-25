@@ -28,6 +28,33 @@ class Admixture(
     AnophelesLdAnalysis,
     AnophelesAimData,
 ):
+    """Convert Anopheles biallelic SNP data to the ADMIXTURE file format, run
+    ADMIXTURE with chosen parameters, and plot results.
+
+    Method selected based on
+    https://github.com/sophiemoss/Anopheles_darlingi_genome_wide_analysis_Rondonia_Brazil/tree/main
+    from this publication: https://www.nature.com/articles/s42003-025-09316-w -
+    used in a recent (Dec 2025) publication on Anopheles darlingi. This
+    analysis used 28 mosquito samples, so was assumed to be suitable for
+    smaller numbers of samples here too. Native compression is used to try to
+    improve scalability to larger numbers of samples. All testing for
+    development was run without access to HPC - 12 cores and 64 GB RAM.
+
+    ADMIXTURE itself is run on the resulting .bed files using code adapted
+    from https://github.com/dportik/admixture-wrapper/tree/master. The data
+    preparation method is adapted from `to_plink`, but with LD pruning applied
+    (as suggested in the ADMIXTURE documentation). Pruning is essential for scalability.
+    For analysis of recently admixed populations, which are potentially of more
+    interest to MalariaGEN, other filtering methods would be more appropriate.
+
+    To allow this to run as a standalone class, the log file is produced as
+    per that repo rather than using the malariagen_data logging. The log
+    contains the analysis settings and the commands used to execute admixture
+    for all K value replicates.
+
+    Dependencies: admixture (in PATH).
+    """
+
     def __init__(
         self,
         **kwargs,
@@ -39,34 +66,7 @@ class Admixture(
 
     @doc(
         summary="""
-            Convert Anopheles biallelic SNP data to the ADMIXTURE file format.
-            Method selected based on this: https://github.com/sophiemoss/Anopheles_darlingi_genome_wide_analysis_Rondonia_Brazil/tree/main
-            from this publication: https://www.nature.com/articles/s42003-025-09316-w
-            chose this because of its use in a recent (Dec 2025) publication on Anopheles darlingi- the primary malaria vector in Central and South America
-            Run ADMIXTURE on output bed files using code pulled from: https://github.com/dportik/admixture-wrapper/tree/master
-            Description from repo:
-                    admixture-wrapper - A tool for automating analyses with the program admixture. A directory of
-            ped files should be specified using the -i flag. The minimum and maximum K values, the
-            number of replicates per K, and the cross-validation procedure folds value are set by the user.
-            The number of threads can also be specified. Outputs from each replicate are written to a unique
-            directory created for each ped file. Two main output files are produced per ped file, one which
-            contains the cross-validation scores for every replicate, and one which contains the average
-            cross-validation score per K value. The second file can be used to plot the CV scores with the
-            associated R script. A log file is also produced, which contains the analysis settings and the
-            commands used to execute admixture for all K value replicates.
-
-
-            DEPENDENCIES: admixture (in path).
-        """,
-        extended_summary="""
-            This function writes biallelic SNPs to the admixture binary file format. It enables
-            subsetting to specific regions (`region`), selecting specific sample sets, or lists of
-            samples, randomly downsampling sites, and specifying filters based on missing data and
-            minimum minor allele count (see the docs for `biallelic_snp_calls` for more information).
-            The `overwrite` parameter, set to true, will enable overwrite of data with the same
-            SNP selection parameter values.
-
-            Cheat is to do this: https://github.com/sophiemoss/Anopheles_darlingi_genome_wide_analysis_Rondonia_Brazil/blob/main/Admixture.sh
+            Convert Anopheles LD-filtered biallelic SNP data to the ADMIXTURE file format.
         """,
         returns="""
         Base path to files containing binary admixture output files. Append .bed,
@@ -195,28 +195,19 @@ class Admixture(
         if argd:
             with open(log_path, "a") as fh:
                 fh.write(
-                    "Run executed: {}\n\nadmixture_wrapper settings:\n"
-                    "-i:\t\t{}\n--kmin:\t{}\n--kmax:\t{}\n--reps:\t{}\n--cv:\t{}\n"
-                    "-t:\t\t{}\n--seed:\t{}\n--method:\t{}\n--acceleration:\t{}\n"
-                    "-C:\t{}\n-c:\t{}\n-B:\t{}\n\n".format(
-                        datetime.now(),
-                        argd.get("indir"),
-                        argd.get("kmin"),
-                        argd.get("kmax"),
-                        argd.get("reps"),
-                        argd.get("cv"),
-                        argd.get("threads"),
-                        argd.get("seed"),
-                        argd.get("method"),
-                        argd.get("acceleration"),
-                        argd.get("major_convergence"),
-                        argd.get("minor_convergence"),
-                        argd.get("bootstrap"),
-                    )
+                    f"Run executed: {datetime.now()}\n\nadmixture_wrapper settings:\n"
+                    f"-i:\t\t{argd.get('indir')}\n--kmin:\t{argd.get('kmin')}\n"
+                    f"--kmax:\t{argd.get('kmax')}\n--reps:\t{argd.get('reps')}\n"
+                    f"--cv:\t{argd.get('cv')}\n-t:\t\t{argd.get('threads')}\n"
+                    f"--seed:\t{argd.get('seed')}\n--method:\t{argd.get('method')}\n"
+                    f"--acceleration:\t{argd.get('acceleration')}\n"
+                    f"-C:\t{argd.get('major_convergence')}\n"
+                    f"-c:\t{argd.get('minor_convergence')}\n"
+                    f"-B:\t{argd.get('bootstrap')}\n\n"
                 )
         else:
             with open(log_path, "a") as fh:
-                fh.write("{}".format(text))
+                fh.write(text)
 
     def _load_admixture_q_long(
         self, input_folder_with_sample_name: str, k: int
@@ -418,9 +409,9 @@ class Admixture(
                 "located in input directory.\n\n\n"
             )
         else:
-            print("\n\nFound {} ped files to run:".format(len(beds)))
+            print(f"\n\nFound {len(beds)} ped files to run:")
             for p in beds:
-                print("\t{}".format(p))
+                print(f"\t{p}")
             return beds
 
     def run_admixture(
@@ -499,19 +490,18 @@ class Admixture(
         for i in kreps:
             for j in i:
                 tb = datetime.now()
-                print("\n\n{}".format("-" * 50))
-                print("Running: K{0} replicate {1}".format(j[0], j[1]))
-                print("{}\n".format("-" * 50))
+                print(f"\n\n{'-' * 50}")
+                print(f"Running: K{j[0]} replicate {j[1]}")
+                print(f"{'-' * 50}\n")
 
                 rep_seed = seed if seed is not None else random.randint(5000)
-                call_str = "admixture {0} {1} -j{2} --cv={3} -s {4} {5} | tee {6}.{1}.out".format(
-                    p, j[0], threads, cv, rep_seed, extra_flags, p_basename
+                call_str = (
+                    f"admixture {p} {j[0]} -j{threads} --cv={cv} -s {rep_seed} "
+                    f"{extra_flags} | tee {p_basename}.{j[0]}.out"
                 )
                 self.write_log(
                     output_dir=output_dir,
-                    text="{0}: K{1} replicate {2}: {3}\n".format(
-                        datetime.now(), j[0], j[1], call_str
-                    ),
+                    text=f"{datetime.now()}: K{j[0]} replicate {j[1]}: {call_str}\n",
                 )
                 print(f"{call_str}\n")
                 retcode = sp.call(call_str, shell=True)
@@ -528,12 +518,7 @@ class Admixture(
                             o,
                             os.path.join(
                                 output_dir,
-                                "{}.{}.{}.{}".format(
-                                    o.split(".")[0],
-                                    o.split(".")[1],
-                                    j[1],
-                                    o.split(".")[-1],
-                                ),
+                                f"{pieces[0]}.{pieces[1]}.{j[1]}.{pieces[-1]}",
                             ),
                         )
                     elif len(pieces) > 3:
@@ -542,9 +527,7 @@ class Admixture(
                             o,
                             os.path.join(
                                 output_dir,
-                                "{}.{}.{}.{}".format(
-                                    out_prefix, pieces[-2], j[1], pieces[-1]
-                                ),
+                                f"{out_prefix}.{pieces[-2]}.{j[1]}.{pieces[-1]}",
                             ),
                         )
 
@@ -571,7 +554,7 @@ class Admixture(
 
         if outs:
             tb = datetime.now()
-            print("\n\n{}".format("-" * 50))
+            print(f"\n\n{'-' * 50}")
             print("\nSummarizing output files...")
 
             outall = "Cross_Validation_All_Replicates.txt"
@@ -604,7 +587,7 @@ class Admixture(
 
             tf = datetime.now()
             print(f"\tFinished.\n\tElapsed time: {tf - tb} (H:M:S)")
-            print("{}\n".format("-" * 50))
+            print(f"{'-' * 50}\n")
 
             shutil.move(
                 outall,
@@ -614,7 +597,7 @@ class Admixture(
 
         else:
             raise ValueError(
-                "\n\n\nERROR: No output log files found in directory: {output_dir}\n\n\n"
+                f"\n\n\nERROR: No output log files found in directory: {output_dir}\n\n\n"
             )
 
     # @_check_types
@@ -622,7 +605,9 @@ class Admixture(
     #     summary="""
     #         Write a `.pop` file for ADMIXTURE's supervised mode, using a chosen
     #         sample metadata column (e.g. an AIM species-call column) as known
-    #         population labels.
+    #         population labels. This was not implemented as it can only be applied to
+    #         An. gambiae and would reuire more intrrogation of the underlying data than
+    #         time allows.
     #     """,
     #     extended_summary="""
     #         ADMIXTURE's supervised mode (``--supervised``) requires a `.pop`
