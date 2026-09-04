@@ -125,14 +125,6 @@ class Admixture(
             if not overwrite:
                 return admixture_file_path
 
-        # Validate LD parameters.
-        if ld_window_size <= 0:
-            raise ValueError(f"ld_window_size must be > 0, got {ld_window_size}")
-        if ld_window_step <= 0:
-            raise ValueError(f"ld_window_step must be > 0, got {ld_window_step}")
-        if not (0 < ld_threshold <= 1):
-            raise ValueError(f"ld_threshold must be in (0, 1], got {ld_threshold}")
-
         gt_dask = self.biallelic_snp_calls_ld_pruned(
             region=region,
             n_snps=n_snps,
@@ -152,15 +144,14 @@ class Admixture(
             chunks=chunks,
         )
 
-        ## then think i want it similar to to_plink for admixture, then just call to complete
-        # or this: https://github.com/jmcastelo/mixtum/blob/main/gui/core.py
-
         # both return xr.dataset so should be OK to steal from to_plink
-
+        # duplication not ideal, would be better to have a more general
+        # class for handling outputs to specific formats
         gt_asc = gt_dask["call_genotype"].data
         gn_ref = allel.GenotypeDaskArray(gt_asc).to_n_ref(fill=-127)
         gn_ref = gn_ref.compute()
 
+        # Ensure genotypes vary
         loc_var = np.any(gn_ref != gn_ref[:, 0, np.newaxis], axis=1)
         ds_snps_final = _dask_compress_dataset(gt_dask, loc_var, dim="variants")
         gn_ref_final = gn_ref[loc_var]
@@ -432,6 +423,14 @@ class Admixture(
         bootstrap: Optional[admixture_params.bootstrap] = None,
         supervised: admixture_params.supervised = admixture_params.supervised_default,
     ):
+        if shutil.which("admixture") is None:
+            raise FileNotFoundError(
+                "The 'admixture' binary was not found on PATH. Install it from "
+                "https://dalexander.github.io/admixture/ (or e.g. "
+                "`conda install -c bioconda admixture`), then ensure it is on "
+                "PATH before calling run_admixture()."
+            )
+
         os.chdir(input_dir)
         os.makedirs(output_dir, exist_ok=True)
         # Record the settings this run was executed with.
