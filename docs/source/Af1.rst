@@ -56,6 +56,7 @@ Sample metadata access
     plot_sample_location_mapbox
     plot_sample_location_geo
     wgs_data_catalog
+    wgs_run_accessions
     cohorts
 
 SNP data access
