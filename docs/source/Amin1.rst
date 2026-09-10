@@ -86,18 +86,6 @@ SNP data access
     biallelic_snps_to_plink
     snp_calls_to_vcf
 
-CNV data access
----------------
-.. autosummary::
-    :toctree: generated/
-
-    coverage_calls_analysis_ids
-    cnv_hmm
-    cnv_coverage_calls
-    plot_cnv_hmm_coverage
-    plot_cnv_hmm_heatmap
-    gene_cnv
-
 Note that CNV discordant read calls are not currently supported.
 
 Integrative genomics viewer (IGV)
