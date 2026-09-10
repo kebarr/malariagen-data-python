@@ -28,6 +28,9 @@ Basic data access
     sample_sets
     lookup_release
     lookup_study
+    lookup_study_info
+    lookup_terms_of_use_info
+    describe_api
 
 Reference genome data access
 ----------------------------
@@ -37,6 +40,7 @@ Reference genome data access
     contigs
     genome_sequence
     genome_features
+    canonical_transcript
     plot_transcript
     plot_genes
 
@@ -57,6 +61,10 @@ Sample metadata access
     wgs_data_catalog
     wgs_run_accessions
     cohorts
+    cohorts_metadata
+    cohort_geometries
+    general_metadata
+    sequence_qc_metadata
 
 SNP data access
 ---------------
@@ -64,14 +72,43 @@ SNP data access
     :toctree: generated/
 
     site_mask_ids
+    site_mask_def
     snp_calls
     snp_allele_counts
     plot_snps
     site_annotations
+    site_filters
     is_accessible
+    snp_effects
     biallelic_snp_calls
+    biallelic_snp_calls_ld_pruned
     biallelic_diplotypes
     biallelic_snps_to_plink
+    snp_calls_to_vcf
+
+Haplotype data access
+---------------------
+.. autosummary::
+    :toctree: generated/
+
+    phasing_analysis_ids
+    haplotypes
+    haplotype_sites
+    transcript_haplotypes
+
+CNV data access
+---------------
+.. autosummary::
+    :toctree: generated/
+
+    coverage_calls_analysis_ids
+    cnv_hmm
+    cnv_coverage_calls
+    plot_cnv_hmm_coverage
+    plot_cnv_hmm_heatmap
+    gene_cnv
+
+Note that CNV discordant read calls are not currently supported.
 
 Integrative genomics viewer (IGV)
 ---------------------------------
@@ -81,8 +118,8 @@ Integrative genomics viewer (IGV)
     igv
     view_alignments
 
-SNP frequency analysis
-----------------------
+SNP and CNV frequency analysis
+-------------------------------
 .. autosummary::
     :toctree: generated/
 
@@ -90,9 +127,14 @@ SNP frequency analysis
     snp_allele_frequencies_advanced
     aa_allele_frequencies
     aa_allele_frequencies_advanced
+    gene_cnv_frequencies
+    gene_cnv_frequencies_advanced
+    haplotypes_frequencies
+    haplotypes_frequencies_advanced
     plot_frequencies_heatmap
     plot_frequencies_time_series
     plot_frequencies_interactive_map
+    plot_frequencies_map_markers
 
 Principal components analysis (PCA)
 -----------------------------------
@@ -121,6 +163,9 @@ Heterozygosity analysis
     plot_heterozygosity
     roh_hmm
     plot_roh
+    sample_count_het
+    cohort_count_het
+    cohort_heterozygosity
 
 Diversity analysis
 ------------------
@@ -130,6 +175,40 @@ Diversity analysis
     cohort_diversity_stats
     diversity_stats
     plot_diversity_stats
+
+Genome-wide selection scans
+---------------------------
+.. autosummary::
+    :toctree: generated/
+
+    h12_calibration
+    plot_h12_calibration
+    h12_gwss
+    plot_h12_gwss
+    plot_h12_gwss_multi_panel
+    plot_h12_gwss_multi_overlay
+    h1x_gwss
+    plot_h1x_gwss
+    g123_calibration
+    plot_g123_calibration
+    g123_gwss
+    plot_g123_gwss
+    ihs_gwss
+    plot_ihs_gwss
+    xpehh_gwss
+    plot_xpehh_gwss
+
+Haplotype clustering and network analysis
+------------------------------------------
+.. autosummary::
+    :toctree: generated/
+
+    plot_haplotype_clustering
+    plot_haplotype_clustering_advanced
+    plot_haplotype_network
+    plot_haplotype_sharing_arc
+    plot_haplotype_sharing_chord
+    haplotype_pairwise_distances
 
 Diplotype clustering
 --------------------
@@ -149,3 +228,14 @@ Fst analysis
     plot_pairwise_average_fst
     fst_gwss
     plot_fst_gwss
+
+Phenotype data access
+---------------------
+.. autosummary::
+    :toctree: generated/
+
+    phenotype_data
+    phenotypes_with_snps
+    phenotypes_with_haplotypes
+    phenotype_sample_sets
+    phenotype_binary

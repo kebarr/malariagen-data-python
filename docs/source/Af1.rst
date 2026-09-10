@@ -29,6 +29,9 @@ Basic data access
     sample_sets
     lookup_release
     lookup_study
+    lookup_study_info
+    lookup_terms_of_use_info
+    describe_api
 
 Reference genome data access
 ----------------------------
@@ -38,6 +41,7 @@ Reference genome data access
     contigs
     genome_sequence
     genome_features
+    canonical_transcript
     plot_transcript
     plot_genes
 
@@ -58,6 +62,10 @@ Sample metadata access
     wgs_data_catalog
     wgs_run_accessions
     cohorts
+    cohorts_metadata
+    cohort_geometries
+    general_metadata
+    sequence_qc_metadata
 
 SNP data access
 ---------------
@@ -65,14 +73,19 @@ SNP data access
     :toctree: generated/
 
     site_mask_ids
+    site_mask_def
     snp_calls
     snp_allele_counts
     plot_snps
     site_annotations
+    site_filters
     is_accessible
+    snp_effects
     biallelic_snp_calls
+    biallelic_snp_calls_ld_pruned
     biallelic_diplotypes
     biallelic_snps_to_plink
+    snp_calls_to_vcf
 
 Haplotype data access
 ---------------------
@@ -82,6 +95,7 @@ Haplotype data access
     phasing_analysis_ids
     haplotypes
     haplotype_sites
+    transcript_haplotypes
 
 CNV data access
 ---------------
@@ -121,6 +135,7 @@ SNP and CNV frequency analysis
     plot_frequencies_heatmap
     plot_frequencies_time_series
     plot_frequencies_interactive_map
+    plot_frequencies_map_markers
 
 Principal components analysis (PCA)
 -----------------------------------
@@ -149,6 +164,9 @@ Heterozygosity analysis
     plot_heterozygosity
     roh_hmm
     plot_roh
+    sample_count_het
+    cohort_count_het
+    cohort_heterozygosity
 
 Diversity analysis
 ------------------
@@ -187,7 +205,10 @@ Haplotype clustering and network analysis
     :toctree: generated/
 
     plot_haplotype_clustering
+    plot_haplotype_clustering_advanced
     plot_haplotype_network
+    plot_haplotype_sharing_arc
+    plot_haplotype_sharing_chord
     haplotype_pairwise_distances
 
 Diplotype clustering
@@ -208,3 +229,14 @@ Fst analysis
     plot_pairwise_average_fst
     fst_gwss
     plot_fst_gwss
+
+Phenotype data access
+---------------------
+.. autosummary::
+    :toctree: generated/
+
+    phenotype_data
+    phenotypes_with_snps
+    phenotypes_with_haplotypes
+    phenotype_sample_sets
+    phenotype_binary
